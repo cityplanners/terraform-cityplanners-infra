@@ -68,3 +68,62 @@ Then, if everything looks good, run:
 terraform apply -var-file=../clients/richard-serra.tfvars
 ```
 
+### 4. Post Apply: DNS Setup (if not using Route 53)
+If `domain_registered_in_aws = false`, Terraform will not create Route 53 records for you. Instead, you need to manually configure DNS at your registrar to point to your CloudFront distribution. Here’s how:
+
+1. Get Your CloudFront Domain
+
+After you apply your Terraform in the `instances/` folder, run:
+
+```bash
+terraform output cloudfront_domain_name
+```
+
+You’ll get a value like:
+
+```
+d123abcd1234.cloudfront.net
+```
+
+2. Login to Your Domain Registrar
+
+Go to the DNS management page for your domain (e.g., Namecheap, GoDaddy, Google Domains).
+
+3. Create the Following Records
+
+| Subdomain            | Type  | Value (Points To)             |
+| -------------------- | ----- | ----------------------------- |
+| `@` or `example.com` | CNAME | `d123abcd1234.cloudfront.net` |
+| `cms`                | CNAME | `d123abcd1234.cloudfront.net` |
+
+* Use @ if your registrar allows it to mean "root domain"
+* Make sure both records point to the same CloudFront domain
+* TTL can usually stay at the default (e.g. 300 seconds)
+
+4. Allow Time for Propagation
+
+DNS changes may take a few minutes to an hour to propagate. You can verify with:
+
+```bash
+dig cms.example.com
+```
+
+Or use online tools like https://dnschecker.org.
+
+### 5. Confirm Access
+Check outputs:
+
+```bash
+terraform output
+```
+
+You should see:
+
+* cloudfront_domain_name
+* cms_url (if applicable)
+* s3_website_url
+
+Try accessing:
+
+* https://<your-client-domain> for Nuxt frontend
+* https://cms.<your-client-domain> for Payload (if enabled)
