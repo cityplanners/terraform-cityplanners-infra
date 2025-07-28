@@ -11,20 +11,18 @@ resource "aws_s3_bucket" "frontend" {
     error_document = "404.html"
   }
 }
+data "aws_ssm_parameter" "client_db_pass" {
+  name = "/clients/${var.client_name}/mongodb-password"
+  with_decryption = true
+}
 
-data "aws_secretsmanager_secret_version" "client_db_pass" {
-  secret_id = "cityplanners/${var.client_name}/mongodb-password"
+data "aws_ssm_parameter" "atlas_project_id" {
+  name = "/global/mongodb_atlas_project_id"
+  with_decryption = true
 }
 
 locals {
-  client_db_password = jsondecode(data.aws_secretsmanager_secret_version.client_db_pass.secret_string)["password"]
-}
-
-data "aws_secretsmanager_secret_version" "atlas_project_id" {
-  secret_id = "/global/mongodb_atlas_project_id"
-}
-
-locals {
+  client_db_password = data.aws_ssm_parameter.client_db_pass.value
   mongodb_uri = var.use_payload ? "mongodb+srv://${var.client_db_user}:${local.client_db_password}@${module.global.atlas_cluster_connection_strings.standard_srv}/${var.client_name}" : null
 }
 

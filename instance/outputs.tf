@@ -3,10 +3,6 @@ output "s3_bucket_url" {
 }
 
 output "payload_service_url" {
-  value = aws_lb.payload_lb.dns_name
-}
-
-output "payload_lb_dns_name" {
   value       = var.use_payload ? aws_lb.payload_lb.dns_name : null
   description = "DNS name of the load balancer for accessing Payload"
 }
@@ -14,7 +10,6 @@ output "payload_lb_dns_name" {
 output "cert_dns_validation" {
   value = aws_acm_certificate.cert.domain_validation_options
   description = "Manually add these DNS records to your registrar for ACM to validate the domain"
-  condition   = !var.domain_registered_in_aws
 }
 
 output "payload_lb_dns" {
@@ -34,5 +29,5 @@ output "ecs_task_definition_arn" {
 
 output "cms_subdomain_dns_instructions" {
   description = "Instructions if domain is NOT registered in Route 53"
-  value = var.domain_registered_in_aws ? null : "Please add a CNAME record for cms.${var.domain_name} pointing to ${aws_cloudfront_distribution.site.domain_name}"
+  value = var.domain_registered_in_aws ? null : "Please add a CNAME record for cms.${var.domain_name} pointing to ${aws_cloudfront_distribution.cdn.domain_name}"
 }

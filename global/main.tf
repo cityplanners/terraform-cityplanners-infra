@@ -22,12 +22,14 @@ data "aws_subnets" "default" {
   }
 }
 
-data "aws_secretsmanager_secret_version" "atlas_public_key" {
-  secret_id = "/global/mongodb_atlas_public_key"
+data "aws_ssm_parameter" "atlas_public_key" {
+  name            = "/global/mongodb_atlas_public_key"
+  with_decryption = true
 }
 
-data "aws_secretsmanager_secret_version" "atlas_private_key" {
-  secret_id = "/global/mongodb_atlas_private_key"
+data "aws_ssm_parameter" "atlas_private_key" {
+  name            = "/global/mongodb_atlas_private_key"
+  with_decryption = true
 }
 
 provider "aws" {
@@ -35,8 +37,8 @@ provider "aws" {
 }
 
 provider "mongodbatlas" {
-  public_key  = data.aws_secretsmanager_secret_version.atlas_public_key.secret_string
-  private_key = data.aws_secretsmanager_secret_version.atlas_private_key.secret_string
+  public_key  = data.aws_ssm_parameter.atlas_public_key.value
+  private_key = data.aws_ssm_parameter.atlas_private_key.value
 }
 
 # VPC

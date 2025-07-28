@@ -17,49 +17,49 @@ USE_PAYLOAD_FLAG="false"
 if [[ "$USE_PAYLOAD" =~ ^[Yy]$ ]]; then
   USE_PAYLOAD_FLAG="true"
 
-  # Prompt for and create MongoDB password secret
+  # Prompt for and store MongoDB password
   read -sp "Enter MongoDB DB password for $CLIENT_NAME: " DB_PASS
   echo ""
 
-  aws secretsmanager create-secret \
-    --name /clients/${CLIENT_NAME}/mongodb-password \
-    --description "MongoDB password for Payload CMS for $CLIENT_NAME" \
-    --secret-string "{\"password\":\"${DB_PASS}\"}" \
+  aws ssm put-parameter \
+    --name "/clients/${CLIENT_NAME}/mongodb-password" \
+    --type "SecureString" \
+    --value "${DB_PASS}" \
+    --overwrite \
     --region $REGION
 
   # Construct and store the MongoDB URI
   MONGODB_URI="mongodb+srv://payload-${CLIENT_NAME}:${DB_PASS}@${CLUSTER_NAME}.mongodb.net/${CLIENT_NAME}"
 
-  aws secretsmanager create-secret \
-    --name /clients/${CLIENT_NAME}/mongodb_uri \
-    --secret-string "${MONGODB_URI}" \
-    --description "MongoDB connection string for Payload CMS for ${CLIENT_NAME}" \
+  aws ssm put-parameter \
+    --name "/clients/${CLIENT_NAME}/mongodb_uri" \
+    --type "SecureString" \
+    --value "${MONGODB_URI}" \
+    --overwrite \
     --region $REGION
 
-  # Prompt for and create Payload secret
+  # Prompt for and store Payload secret
   read -sp "Enter Payload secret for $CLIENT_NAME: " PAYLOAD_SECRET
   echo ""
 
-  aws secretsmanager create-secret \
-    --name /clients/${CLIENT_NAME}/payload_secret \
-    --secret-string "${PAYLOAD_SECRET}" \
+  aws ssm put-parameter \
+    --name "/clients/${CLIENT_NAME}/payload_secret" \
+    --type "SecureString" \
+    --value "${PAYLOAD_SECRET}" \
+    --overwrite \
     --region $REGION
 fi
 
-# Fetch ARNs for generated secrets
-get_secret_arn() {
+# SSM ARNs aren't returned directly — we manually construct the reference path
+get_ssm_arn() {
   local name="$1"
-  aws secretsmanager list-secrets \
-    --region "$REGION" \
-    --no-paginate \
-    --query "SecretList[?Name=='${name}'].ARN | [0]" \
-    --output text
+  echo "arn:aws:ssm:${REGION}:$(aws sts get-caller-identity --query Account --output text):parameter${name}"
 }
 
 read -p "Enter custom domain name for ${CLIENT_NAME}: " DOMAIN_NAME
 
 read -p "Is the domain registered in AWS Route 53? (y/n): " USE_AWS_DOMAIN
-if [[ "$USE_AWS_DOMAIN" == "y" || "$USE_AWS_DOMAIN" == "Y" ]]; then
+if [[ "$USE_AWS_DOMAIN" =~ ^[Yy]$ ]]; then
   DOMAIN_IN_AWS=true
   read -p "Enter Route 53 Hosted Zone ID: " ROUTE53_ZONE_ID
 else
@@ -67,7 +67,7 @@ else
   ROUTE53_ZONE_ID=""
 fi
 
-# Start writing the tfvars
+# Write the tfvars file
 TFVARS_FILE="clients/${CLIENT_NAME}.tfvars"
 {
   echo "project_name = \"${CLIENT_NAME}\""
@@ -78,8 +78,8 @@ TFVARS_FILE="clients/${CLIENT_NAME}.tfvars"
   echo "route53_zone_id          = \"${ROUTE53_ZONE_ID}\""
 
   if [[ "$USE_PAYLOAD_FLAG" == "true" ]]; then
-    MONGODB_URI_ARN=$(get_secret_arn "/clients/${CLIENT_NAME}/mongodb_uri")
-    PAYLOAD_SECRET_ARN=$(get_secret_arn "/clients/${CLIENT_NAME}/payload_secret")
+    MONGODB_URI_ARN=$(get_ssm_arn "/clients/${CLIENT_NAME}/mongodb_uri")
+    PAYLOAD_SECRET_ARN=$(get_ssm_arn "/clients/${CLIENT_NAME}/payload_secret")
 
     cat <<EOF
 containers = [
