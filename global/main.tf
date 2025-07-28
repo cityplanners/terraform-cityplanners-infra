@@ -30,10 +30,6 @@ data "aws_secretsmanager_secret_version" "atlas_private_key" {
   secret_id = "/global/mongodb_atlas_private_key"
 }
 
-data "aws_secretsmanager_secret_version" "atlas_project_id" {
-  secret_id = "/global/mongodb_atlas_project_id"
-}
-
 provider "aws" {
   region = var.aws_region
 }
@@ -41,12 +37,6 @@ provider "aws" {
 provider "mongodbatlas" {
   public_key  = data.aws_secretsmanager_secret_version.atlas_public_key.secret_string
   private_key = data.aws_secretsmanager_secret_version.atlas_private_key.secret_string
-}
-
-variable "atlas_project_id" {
-  type = string
-  description = "MongoDB Atlas project ID"
-  default = data.aws_secretsmanager_secret_version.atlas_project_id.secret_string
 }
 
 # VPC

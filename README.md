@@ -17,31 +17,31 @@ This Terraform project sets up infrastructure for:
 
 In this example, we'll use `richard-serra` as the client project name.
 
+You should only need to run the `create-global-secrets.sh` file once to set up.
+
 ---
 
 ### 1. Create Required Secrets
 
-If you haven't already, run the following scripts to create the necessary secrets in AWS Secrets Manager:
+If you haven't already, run the following scripts to create the necessary secrets in AWS Secrets Manager and generate the client tfvars file:
 
 ```bash
-./create-global-secrets.sh
-./create-client-secrets.sh richard-serra
+./create-client.sh richard-serra
 ```
 
-### 2. Deploy Global Infrastructure
+### 2. Deploy Infrastructure
 
-Navigate to the global folder and apply the infrastructure:
+Apply Terraform from the project root using the generated client variables:
 
 ```bash
-cd global
 terraform init
-terraform plan -var-file="global.tfvars"
+terraform plan -var-file="clients/richard-serra.tfvars"
 ```
 
 Then, if everything looks good, run:
 
 ```bash
-terraform apply -var-file="global.tfvars"
+terraform apply -var-file="clients/richard-serra.tfvars"
 ```
 
 This sets up:
@@ -51,29 +51,14 @@ This sets up:
 * Route tables
 * Internet gateway
 * Shared MongoDB Atlas cluster
+* CloudFront, TLS, and DNS routing
 
-### 3. Deploy Client Instance
-
-Now move to the instances folder and deploy the specific client resources:
-
-```bash
-cd ../instances
-terraform init
-terraform plan -var-file=../clients/richard-serra.tfvars
-```
-
-Then, if everything looks good, run:
-
-```bash
-terraform apply -var-file=../clients/richard-serra.tfvars
-```
-
-### 4. Post Apply: DNS Setup (if not using Route 53)
+### 3. Post Apply: DNS Setup (if not using Route 53)
 If `domain_registered_in_aws = false`, Terraform will not create Route 53 records for you. Instead, you need to manually configure DNS at your registrar to point to your CloudFront distribution. Here’s how:
 
 1. Get Your CloudFront Domain
 
-After you apply your Terraform in the `instances/` folder, run:
+After you apply your Terraform in the `instance/` folder, run:
 
 ```bash
 terraform output cloudfront_domain_name
@@ -110,7 +95,7 @@ dig cms.example.com
 
 Or use online tools like https://dnschecker.org.
 
-### 5. Confirm Access
+### 4. Confirm Access
 Check outputs:
 
 ```bash
@@ -127,3 +112,9 @@ Try accessing:
 
 * https://<your-client-domain> for Nuxt frontend
 * https://cms.<your-client-domain> for Payload (if enabled)
+
+## Notes
+
+* This project uses a unified root module to manage global and per-client resources.
+* MongoDB Atlas is provisioned once globally and accessed by all clients.
+* Secrets are stored in AWS Secrets Manager and dynamically injected into ECS services.

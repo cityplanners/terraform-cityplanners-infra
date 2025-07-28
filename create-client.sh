@@ -71,6 +71,7 @@ fi
 TFVARS_FILE="clients/${CLIENT_NAME}.tfvars"
 {
   echo "project_name = \"${CLIENT_NAME}\""
+  echo "atlas_cluster_name = \"${CLUSTER_NAME}\""
   echo "use_payload  = ${USE_PAYLOAD_FLAG}"
   echo "domain_name              = \"${DOMAIN_NAME}\""
   echo "domain_registered_in_aws = ${DOMAIN_IN_AWS}"

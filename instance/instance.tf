@@ -3,7 +3,7 @@ module "global" {
 }
 
 resource "aws_s3_bucket" "frontend" {
-  bucket = var.project_name
+  bucket = var.client_name
   acl    = "public-read"
 
   website {
@@ -13,38 +13,32 @@ resource "aws_s3_bucket" "frontend" {
 }
 
 data "aws_secretsmanager_secret_version" "client_db_pass" {
-  secret_id = "cityplanners/${var.project_name}/mongodb-password"
+  secret_id = "cityplanners/${var.client_name}/mongodb-password"
 }
 
-variable "client_db_password" {
-  default = jsondecode(data.aws_secretsmanager_secret_version.client_db_pass.secret_string)["password"]
+locals {
+  client_db_password = jsondecode(data.aws_secretsmanager_secret_version.client_db_pass.secret_string)["password"]
 }
 
 data "aws_secretsmanager_secret_version" "atlas_project_id" {
   secret_id = "/global/mongodb_atlas_project_id"
 }
 
-variable "atlas_project_id" {
-  type = string
-  description = "MongoDB Atlas project ID"
-  default = data.aws_secretsmanager_secret_version.atlas_project_id.secret_string
-}
-
 locals {
-  mongodb_uri = var.use_payload ? "mongodb+srv://${var.client_db_user}:${var.client_db_password}@${module.global.atlas_cluster_connection_strings.standard_srv}/${var.project_name}" : null
+  mongodb_uri = var.use_payload ? "mongodb+srv://${var.client_db_user}:${local.client_db_password}@${module.global.atlas_cluster_connection_strings.standard_srv}/${var.client_name}" : null
 }
 
 # MongoDB User
 resource "mongodbatlas_database_user" "payload_user" {
   count              = var.use_payload ? 1 : 0
-  username           = "payload-${var.project_name}"
-  password           = var.client_db_password
+  username           = "payload-${var.client_name}"
+  password           = local.client_db_password
   project_id         = var.atlas_project_id
   auth_database_name = "admin"
 
   roles {
     role_name     = "readWrite"
-    database_name = var.project_name
+    database_name = var.client_name
   }
 
   scopes {
@@ -55,7 +49,7 @@ resource "mongodbatlas_database_user" "payload_user" {
 
 # S3 Bucket for Nuxt frontend
 resource "aws_s3_bucket" "frontend" {
-  bucket = var.project_name
+  bucket = var.client_name
   acl    = "public-read"
 
   website {
@@ -64,19 +58,19 @@ resource "aws_s3_bucket" "frontend" {
   }
 
   tags = {
-    Name        = "${var.project_name}-nuxt-frontend"
+    Name        = "${var.client_name}-nuxt-frontend"
     Environment = "production"
   }
 }
 
 # ECS + Fargate Cluster
 resource "aws_ecs_cluster" "main" {
-  name = "${var.project_name}-cluster"
+  name = "${var.client_name}-cluster"
 }
 
 # Security group
 resource "aws_security_group" "payload_sg" {
-  name   = "${var.project_name}-payload-sg"
+  name   = "${var.client_name}-payload-sg"
   vpc_id = module.global.vpc_id
 
   ingress {
@@ -96,7 +90,7 @@ resource "aws_security_group" "payload_sg" {
 
 # Fargate task definition
 resource "aws_ecs_task_definition" "payload" {
-  family                   = "${var.project_name}-task"
+  family                   = "${var.client_name}-task"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = "512"
@@ -131,7 +125,7 @@ resource "aws_ecs_task_definition" "payload" {
 # ECS service
 resource "aws_ecs_service" "payload" {
   count           = var.use_payload ? 1 : 0
-  name            = "${var.project_name}-payload-service"
+  name            = "${var.client_name}-payload-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.payload.arn
   launch_type     = "FARGATE"
@@ -146,9 +140,8 @@ resource "aws_ecs_service" "payload" {
 
 # Load balancer (for external access to Payload)
 resource "aws_lb" "payload_lb" {
-  name               = "${var.project_name}-lb"
+  name               = "${var.client_name}-lb"
   internal           = false
-  load_balancer_type = "application"
   subnets            = module.global.subnet_ids
 }
 
@@ -176,7 +169,7 @@ resource "aws_cloudfront_distribution" "cdn" {
 
   enabled             = true
   is_ipv6_enabled     = true
-  comment             = "${var.project_name} CDN"
+  comment             = "${var.client_name} CDN"
   default_root_object = "index.html"
 
   default_cache_behavior {
@@ -249,7 +242,7 @@ resource "aws_acm_certificate" "wildcard_cert" {
   }
 
   tags = {
-    Name = "${var.project_name}-wildcard-cert"
+    Name = "${var.client_name}-wildcard-cert"
   }
 }
 
