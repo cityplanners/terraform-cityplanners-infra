@@ -2,7 +2,7 @@ terraform {
   required_providers {
     mongodbatlas = {
       source  = "mongodb/mongodbatlas"
-      version = "~> 1.14.0"
+      version = "~> 1.15.0"
     }
     aws = {
       source  = "hashicorp/aws"
@@ -34,11 +34,6 @@ data "aws_ssm_parameter" "atlas_private_key" {
 
 provider "aws" {
   region = var.aws_region
-}
-
-provider "mongodbatlas" {
-  public_key  = data.aws_ssm_parameter.atlas_public_key.value
-  private_key = data.aws_ssm_parameter.atlas_private_key.value
 }
 
 # VPC
@@ -113,16 +108,23 @@ resource "aws_route_table_association" "public_b" {
 resource "mongodbatlas_cluster" "main" {
   project_id                    = var.atlas_project_id
   name                          = var.atlas_cluster_name
+  cluster_type                  = "REPLICASET"
+
+  replication_specs {
+    num_shards = 1
+    regions_config {
+      region_name     = "US_EAST_1"
+      electable_nodes = 1
+      priority        = 7
+      read_only_nodes = 0
+    }
+  }
 
   provider_name                 = "AWS"
-  region_name                   = "US_EAST_1"
-
-  cluster_type                  = "REPLICASET"
   backing_provider_name         = "AWS"
   provider_instance_size_name   = "M0" # Free tier (shared cluster)
 
   auto_scaling_disk_gb_enabled  = true
   disk_size_gb                  = 2
 
-  provider_backup_enabled       = false
 }

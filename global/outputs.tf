@@ -4,7 +4,7 @@ output "atlas_cluster_id" {
 
 output "atlas_cluster_connection_string" {
   description = "The MongoDB Atlas SRV connection string for Payload"
-  value       = mongodbatlas_cluster.main.connection_strings.standard_srv
+  value       = mongodbatlas_cluster.main.connection_strings[0].standard_srv
   sensitive   = true
 }
 

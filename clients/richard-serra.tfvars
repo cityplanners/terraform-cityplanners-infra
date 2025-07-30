@@ -1,4 +1,4 @@
-project_name             = "richard-serra"
+client_name              = "richard-serra"
 atlas_cluster_name       = "cityplanners"
 use_payload              = true
 domain_name              = "richardserra.site"

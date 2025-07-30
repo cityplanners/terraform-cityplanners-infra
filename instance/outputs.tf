@@ -1,7 +1,3 @@
-output "s3_bucket_url" {
-  value       = "https://${var.s3_bucket_name}.s3.amazonaws.com"
-}
-
 output "payload_service_url" {
   value       = var.use_payload ? aws_lb.payload_lb.dns_name : null
   description = "DNS name of the load balancer for accessing Payload"
@@ -19,7 +15,7 @@ output "payload_lb_dns" {
 }
 
 output "ecs_service_name" {
-  value       = var.use_payload ? aws_ecs_service.payload.name : null
+  value       = var.use_payload ? aws_ecs_service.payload[0].name : null
   description = "ECS service name"
 }
 

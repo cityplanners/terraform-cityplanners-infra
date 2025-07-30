@@ -1,28 +1,81 @@
-data "aws_secretsmanager_secret_version" "atlas_project_id" {
-  secret_id = "/global/mongodb_atlas_project_id"
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+
+    mongodbatlas = {
+      source  = "mongodb/mongodbatlas"
+      version = "~> 1.15.0"
+    }
+  }
+}
+
+data "aws_ssm_parameter" "atlas_project_id" {
+  name            = "/global/mongodb_atlas_project_id"
+  with_decryption = true
+}
+
+data "aws_ssm_parameter" "atlas_private_key" {
+  name            = "/global/mongodb_atlas_private_key"
+  with_decryption = true
+}
+
+data "aws_ssm_parameter" "atlas_public_key" {
+  name            = "/global/mongodb_atlas_public_key"
+  with_decryption = true
+}
+
+data "aws_ssm_parameter" "mongodb_uri" {
+  name            = "/clients/${var.client_name}/mongodb_uri"
+  with_decryption = true
+}
+
+data "aws_ssm_parameter" "payload_secret" {
+  name            = "/clients/${var.client_name}/payload_secret"
+  with_decryption = true
+}
+
+provider "mongodbatlas" {
+  public_key  = data.aws_ssm_parameter.atlas_public_key.value
+  private_key = data.aws_ssm_parameter.atlas_private_key.value
 }
 
 module "global" {
   source = "./global"
 
-  atlas_public_key  = var.atlas_public_key
-  atlas_private_key = var.atlas_private_key
-  atlas_project_id  = data.aws_secretsmanager_secret_version.atlas_project_id.secret_string
+  providers = {
+    mongodbatlas = mongodbatlas
+  }
+
+  aws_region         = var.aws_region
+  atlas_cluster_name = var.atlas_cluster_name
+  atlas_project_id   = data.aws_ssm_parameter.atlas_project_id.value
+  atlas_private_key  = data.aws_ssm_parameter.atlas_private_key.value
+  atlas_public_key   = data.aws_ssm_parameter.atlas_public_key.value
 }
 
 module "client_instance" {
-  source = "./instances"
+  source = "./instance"
 
-  atlas_project_id  = data.aws_secretsmanager_secret_version.atlas_project_id.secret_string
+  atlas_project_id  = data.aws_ssm_parameter.atlas_project_id.value
 
   client_name              = var.client_name
   domain_name              = var.domain_name
   domain_registered_in_aws = var.domain_registered_in_aws
   use_payload              = var.use_payload
 
-  vpc_id     = module.global.vpc_id
-  subnets    = module.global.private_subnets
+  client_db_user = "payload-${var.client_name}"
+  atlas_cluster_connection_strings = module.global.atlas_cluster_connection_string
+  atlas_cluster_name       = var.atlas_cluster_name
+  route53_zone_id          = var.route53_zone_id
 
-  mongodb_uri     = var.mongodb_uri
-  payload_secret  = var.payload_secret
+  vpc_id         = module.global.vpc_id
+  subnet_ids     = module.global.subnet_ids
+
+  mongodb_uri    = data.aws_ssm_parameter.mongodb_uri.value
+  payload_secret = data.aws_ssm_parameter.payload_secret.value
+
+  containers = var.containers
 }
