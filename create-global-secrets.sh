@@ -1,22 +1,35 @@
 #!/bin/bash
 
+REGION="us-east-1"
+
 read -sp "Enter MongoDB Atlas public key: " MONGODB_PUBLIC_KEY
 echo ""
 
-aws secretsmanager create-secret \
-                      --name /global/mongodb_atlas_public_key \
-                      --secret-string "${MONGODB_PUBLIC_KEY}"
+aws ssm put-parameter \
+  --name "/global/mongodb_atlas_public_key" \
+  --type "SecureString" \
+  --value "${MONGODB_PUBLIC_KEY}" \
+  --overwrite \
+  --region "$REGION"
 
 read -sp "Enter MongoDB Atlas private key: " MONGODB_PRIVATE_KEY
 echo ""
 
-aws secretsmanager create-secret \
-                      --name /global/mongodb_atlas_private_key \
-                      --secret-string "${MONGODB_PRIVATE_KEY}"
+aws ssm put-parameter \
+  --name "/global/mongodb_atlas_private_key" \
+  --type "SecureString" \
+  --value "${MONGODB_PRIVATE_KEY}" \
+  --overwrite \
+  --region "$REGION"
 
-read -sp "Enter MongoDB Atlas project id: " MONGODB_PROJECT_ID
+read -sp "Enter MongoDB Atlas project ID: " MONGODB_PROJECT_ID
 echo ""
 
-aws secretsmanager create-secret \
-                      --name /global/mongodb_atlas_project_id \
-                      --secret-string "${MONGODB_PROJECT_ID}"
+aws ssm put-parameter \
+  --name "/global/mongodb_atlas_project_id" \
+  --type "SecureString" \
+  --value "${MONGODB_PROJECT_ID}" \
+  --overwrite \
+  --region "$REGION"
+
+echo "✅ Global secrets stored securely in SSM Parameter Store."

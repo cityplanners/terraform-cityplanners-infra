@@ -38,9 +38,9 @@ if [[ "$USE_PAYLOAD" =~ ^[Yy]$ ]]; then
     --overwrite \
     --region $REGION
 
-  # Prompt for and store Payload secret
-  read -sp "Enter Payload secret for $CLIENT_NAME: " PAYLOAD_SECRET
-  echo ""
+  # Generate and store Payload secret automatically
+  PAYLOAD_SECRET=$(openssl rand -hex 32)
+  echo "Generated Payload secret for ${CLIENT_NAME}"
 
   aws ssm put-parameter \
     --name "/clients/${CLIENT_NAME}/payload_secret" \
@@ -70,9 +70,9 @@ fi
 # Write the tfvars file
 TFVARS_FILE="clients/${CLIENT_NAME}.tfvars"
 {
-  echo "project_name = \"${CLIENT_NAME}\""
-  echo "atlas_cluster_name = \"${CLUSTER_NAME}\""
-  echo "use_payload  = ${USE_PAYLOAD_FLAG}"
+  echo "project_name             = \"${CLIENT_NAME}\""
+  echo "atlas_cluster_name       = \"${CLUSTER_NAME}\""
+  echo "use_payload              = ${USE_PAYLOAD_FLAG}"
   echo "domain_name              = \"${DOMAIN_NAME}\""
   echo "domain_registered_in_aws = ${DOMAIN_IN_AWS}"
   echo "route53_zone_id          = \"${ROUTE53_ZONE_ID}\""
@@ -100,4 +100,4 @@ EOF
   fi
 } > "$TFVARS_FILE"
 
-echo "✅ Finished. Wrote Terraform variables to: $TFVARS_FILE"
+echo "Finished. Wrote Terraform variables to: $TFVARS_FILE"

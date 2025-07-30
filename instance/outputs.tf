@@ -1,5 +1,5 @@
 output "s3_bucket_url" {
-  value = "https://${var.s3_bucket_name}.s3.amazonaws.com"
+  value       = "https://${var.s3_bucket_name}.s3.amazonaws.com"
 }
 
 output "payload_service_url" {
@@ -8,8 +8,9 @@ output "payload_service_url" {
 }
 
 output "cert_dns_validation" {
-  value = aws_acm_certificate.cert.domain_validation_options
+  value       = aws_acm_certificate.cert.domain_validation_options
   description = "Manually add these DNS records to your registrar for ACM to validate the domain"
+  sensitive   = true
 }
 
 output "payload_lb_dns" {
@@ -29,5 +30,5 @@ output "ecs_task_definition_arn" {
 
 output "cms_subdomain_dns_instructions" {
   description = "Instructions if domain is NOT registered in Route 53"
-  value = var.domain_registered_in_aws ? null : "Please add a CNAME record for cms.${var.domain_name} pointing to ${aws_cloudfront_distribution.cdn.domain_name}"
+  value       = var.domain_registered_in_aws ? null : "Please add a CNAME record for cms.${var.domain_name} pointing to ${aws_cloudfront_distribution.cdn.domain_name}"
 }
