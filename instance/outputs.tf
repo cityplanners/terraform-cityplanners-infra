@@ -4,7 +4,7 @@ output "payload_service_url" {
 }
 
 output "cert_dns_validation" {
-  value       = aws_acm_certificate.cert.domain_validation_options
+  value       = var.domain_registered_in_aws ? null : aws_acm_certificate.cert.domain_validation_options
   description = "Manually add these DNS records to your registrar for ACM to validate the domain"
   sensitive   = true
 }

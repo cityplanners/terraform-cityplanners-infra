@@ -9,10 +9,11 @@ output "atlas_cluster_connection_string" {
 }
 
 output "vpc_id" {
-  value = data.aws_vpc.default.id
+  value = aws_vpc.main.id
 }
 
 output "subnet_ids" {
+  description = "List of public subnet IDs"
   value = [
     aws_subnet.public_a.id,
     aws_subnet.public_b.id

@@ -43,7 +43,7 @@ variable "client_db_user" {
   description = "The MongoDB user to create for this client"
 }
 
-variable "atlas_cluster_connection_strings" {
+variable "atlas_cluster_connection_string" {
   type = string
   description = "Atlas SRV connection string prefix"
 }

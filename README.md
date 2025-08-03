@@ -54,46 +54,95 @@ This sets up:
 * CloudFront, TLS, and DNS routing
 
 ### 3. Post Apply: DNS Setup (if not using Route 53)
-If `domain_registered_in_aws = false`, Terraform will not create Route 53 records for you. Instead, you need to manually configure DNS at your registrar to point to your CloudFront distribution. Here’s how:
 
-1. Get Your CloudFront Domain
+If `domain_registered_in_aws = false`, Terraform will not create Route 53 records for you. Instead, you need to manually configure DNS at your registrar. This involves two steps: SSL certificate validation and pointing your domain to CloudFront.
 
-After you apply your Terraform in the `instance/` folder, run:
+#### Step 1: SSL Certificate Validation (Required First)
 
-```bash
-terraform output cloudfront_domain_name
-```
+Before your infrastructure can work with HTTPS, you need to validate your SSL certificate by adding a DNS validation record:
 
-You’ll get a value like:
+1. **Get the Certificate Validation Record**
+   
+   After running `terraform apply`, if you get SSL certificate errors, get the validation details:
+   ```bash
+   terraform state show 'module.client_instance.aws_acm_certificate.cert'
+   ```
+   
+   Look for the `domain_validation_options` section which will show something like:
+   ```
+   resource_record_name  = "_81a9ea9c5fce96ad3f4c56eeae3bfd3b.yourdomain.com."
+   resource_record_type  = "CNAME"
+   resource_record_value = "_77ea313e370c0389aa39b11f733529ba.xlfgrmvvlj.acm-validations.aws."
+   ```
 
-```
-d123abcd1234.cloudfront.net
-```
+2. **Add the Validation CNAME Record**
+   
+   Login to your domain registrar and add this exact CNAME record:
+   
+   | Record Type | Name/Host | Value/Points To |
+   | ----------- | --------- | --------------- |
+   | **CNAME** | `_81a9ea9c5fce96ad3f4c56eeae3bfd3b` | `_77ea313e370c0389aa39b11f733529ba.xlfgrmvvlj.acm-validations.aws.` |
+   
+   **Important Notes:**
+   - Use the exact values from your certificate output
+   - Some registrars automatically append your domain name, so you may only need the hash part
+   - Include the trailing dot (`.`) in the value if your registrar requires it
+   - TTL can be set to default (300-3600 seconds)
 
-2. Login to Your Domain Registrar
+3. **Wait for Certificate Validation**
+   
+   Monitor the certificate status (takes 5-30 minutes):
+   ```bash
+   aws acm describe-certificate --certificate-arn YOUR_CERT_ARN --region us-east-1 --query 'Certificate.Status'
+   ```
+   
+   When it returns `"ISSUED"`, proceed to run `terraform apply` again.
 
-Go to the DNS management page for your domain (e.g., Namecheap, GoDaddy, Google Domains).
+#### Step 2: Point Your Domain to CloudFront (After SSL is Working)
 
-3. Create the Following Records
+Once your SSL certificate is validated and `terraform apply` completes successfully:
 
-| Subdomain            | Type  | Value (Points To)             |
-| -------------------- | ----- | ----------------------------- |
-| `@` or `example.com` | CNAME | `d123abcd1234.cloudfront.net` |
-| `cms`                | CNAME | `d123abcd1234.cloudfront.net` |
+1. **Get Your CloudFront Domain**
+   
+   ```bash
+   terraform output cloudfront_domain_name
+   ```
+   
+   You'll get a value like:
+   ```
+   d123abcd1234.cloudfront.net
+   ```
 
-* Use @ if your registrar allows it to mean "root domain"
-* Make sure both records point to the same CloudFront domain
-* TTL can usually stay at the default (e.g. 300 seconds)
+2. **Create Domain Records**
+   
+   Go to your domain registrar's DNS management page and create these records:
+   
+   | Subdomain | Type | Value (Points To) |
+   | --------- | ---- | ----------------- |
+   | `@` or root domain | CNAME or A | `d123abcd1234.cloudfront.net` |
+   | `cms` | CNAME | `d123abcd1234.cloudfront.net` |
+   
+   **Notes:**
+   - Use `@` if your registrar supports it for the root domain
+   - Some registrars require an A record for the root domain instead of CNAME
+   - Both records should point to the same CloudFront domain
+   - TTL can stay at default (300-3600 seconds)
 
-4. Allow Time for Propagation
+3. **Allow Time for Propagation**
+   
+   DNS changes may take a few minutes to an hour to propagate. You can verify with:
+   ```bash
+   dig yourdomain.com
+   dig cms.yourdomain.com
+   ```
+   
+   Or use online tools like https://dnschecker.org.
 
-DNS changes may take a few minutes to an hour to propagate. You can verify with:
+#### Troubleshooting
 
-```bash
-dig cms.example.com
-```
-
-Or use online tools like https://dnschecker.org.
+- **SSL Certificate Errors**: Make sure you completed Step 1 and the certificate shows as `ISSUED`
+- **Domain Not Resolving**: Double-check that your CNAME records point to the correct CloudFront domain
+- **Mixed Content Warnings**: Ensure your application is configured to use HTTPS for all resources
 
 ### 4. Confirm Access
 Check outputs:

@@ -11,17 +11,6 @@ terraform {
   }
 }
 
-data "aws_vpc" "default" {
-  default = true
-}
-
-data "aws_subnets" "default" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
-  }
-}
-
 data "aws_ssm_parameter" "atlas_public_key" {
   name            = "/global/mongodb_atlas_public_key"
   with_decryption = true
@@ -37,7 +26,7 @@ provider "aws" {
 }
 
 # VPC
-resource "aws_vpc" "default" {
+resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -49,7 +38,7 @@ resource "aws_vpc" "default" {
 
 # Subnets
 resource "aws_subnet" "public_a" {
-  vpc_id                  = aws_vpc.default.id
+  vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
   availability_zone       = "us-east-1a"
   map_public_ip_on_launch = true
@@ -60,7 +49,7 @@ resource "aws_subnet" "public_a" {
 }
 
 resource "aws_subnet" "public_b" {
-  vpc_id                  = aws_vpc.default.id
+  vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.2.0/24"
   availability_zone       = "us-east-1b"
   map_public_ip_on_launch = true
@@ -72,7 +61,7 @@ resource "aws_subnet" "public_b" {
 
 # Internet Gateway
 resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.default.id
+  vpc_id = aws_vpc.main.id
 
   tags = {
     Name = "cityplanners-igw"
@@ -81,7 +70,7 @@ resource "aws_internet_gateway" "igw" {
 
 # Route Table
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.default.id
+  vpc_id = aws_vpc.main.id
 
   route {
     cidr_block = "0.0.0.0/0"
@@ -110,21 +99,17 @@ resource "mongodbatlas_cluster" "main" {
   name                          = var.atlas_cluster_name
   cluster_type                  = "REPLICASET"
 
-  replication_specs {
-    num_shards = 1
-    regions_config {
-      region_name     = "US_EAST_1"
-      electable_nodes = 1
-      priority        = 7
-      read_only_nodes = 0
-    }
-  }
+  provider_name               = "TENANT"
+  backing_provider_name       = "AWS"
+  provider_instance_size_name = "M0" # Free tier (shared cluster)
+  provider_region_name        = "US_EAST_1"
 
-  provider_name                 = "AWS"
-  backing_provider_name         = "AWS"
-  provider_instance_size_name   = "M0" # Free tier (shared cluster)
-
-  auto_scaling_disk_gb_enabled  = true
-  disk_size_gb                  = 2
+  # Remove auto_scaling_disk_gb_enabled and disk_size_gb for M0
+  # M0 clusters have fixed disk size
+  
+  # Alternative: If M0 still doesn't work, try M2 (paid tier)
+  # provider_instance_size_name = "M2"
+  # auto_scaling_disk_gb_enabled = true
+  # disk_size_gb = 2
 
 }

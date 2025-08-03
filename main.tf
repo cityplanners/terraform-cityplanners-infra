@@ -37,6 +37,11 @@ data "aws_ssm_parameter" "payload_secret" {
   with_decryption = true
 }
 
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 provider "mongodbatlas" {
   public_key  = data.aws_ssm_parameter.atlas_public_key.value
   private_key = data.aws_ssm_parameter.atlas_private_key.value
@@ -59,6 +64,11 @@ module "global" {
 module "client_instance" {
   source = "./instance"
 
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
   atlas_project_id  = data.aws_ssm_parameter.atlas_project_id.value
 
   client_name              = var.client_name
@@ -66,8 +76,10 @@ module "client_instance" {
   domain_registered_in_aws = var.domain_registered_in_aws
   use_payload              = var.use_payload
 
+  # Extract just the hostname from the full connection string
+  atlas_cluster_connection_string = regex("mongodb\\+srv://([^/?]+)", module.global.atlas_cluster_connection_string)[0]
+
   client_db_user = "payload-${var.client_name}"
-  atlas_cluster_connection_strings = module.global.atlas_cluster_connection_string
   atlas_cluster_name       = var.atlas_cluster_name
   route53_zone_id          = var.route53_zone_id
 

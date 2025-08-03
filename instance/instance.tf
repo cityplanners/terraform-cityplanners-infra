@@ -3,6 +3,7 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+      configuration_aliases = [aws.us_east_1]
     }
 
     mongodbatlas = {
@@ -24,7 +25,7 @@ data "aws_ssm_parameter" "atlas_project_id" {
 
 locals {
   client_db_password = data.aws_ssm_parameter.client_db_pass.value
-  mongodb_uri = var.use_payload ? "mongodb+srv://${var.client_db_user}:${local.client_db_password}@${var.atlas_cluster_connection_strings}/${var.client_name}" : null
+  mongodb_uri = var.use_payload ? "mongodb+srv://${var.client_db_user}:${local.client_db_password}@${var.atlas_cluster_connection_string}/${var.client_name}" : null
 }
 
 # MongoDB User
@@ -55,9 +56,13 @@ resource "aws_s3_bucket" "frontend" {
   }
 }
 
-resource "aws_s3_bucket_acl" "frontend_acl" {
+resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket = aws_s3_bucket.frontend.id
-  acl    = "public-read"
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
 }
 
 resource "aws_s3_bucket_website_configuration" "frontend" {
@@ -70,19 +75,41 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
   }
 }
 
+resource "aws_s3_bucket_policy" "frontend_policy" {
+  bucket = aws_s3_bucket.frontend.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Sid       = "PublicReadGetObject",
+      Effect    = "Allow",
+      Principal = "*",
+      Action    = ["s3:GetObject"],
+      Resource  = "${aws_s3_bucket.frontend.arn}/*"
+    }]
+  })
+}
+
 # ECS + Fargate Cluster
 resource "aws_ecs_cluster" "main" {
   name = "${var.client_name}-cluster"
 }
 
-# Security group
-resource "aws_security_group" "payload_sg" {
-  name   = "${var.client_name}-payload-sg"
+# Security group for ALB (separate from ECS security group)
+resource "aws_security_group" "alb_sg" {
+  name   = "${var.client_name}-alb-sg"
   vpc_id = var.vpc_id
 
   ingress {
-    from_port   = 3000
-    to_port     = 3000
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -93,6 +120,52 @@ resource "aws_security_group" "payload_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = {
+    Name = "${var.client_name}-alb-sg"
+  }
+}
+
+# Security group
+resource "aws_security_group" "payload_sg" {
+  name   = "${var.client_name}-payload-sg"
+  vpc_id = var.vpc_id
+
+  # Only allow traffic from the ALB security group (more secure)
+  ingress {
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# ECS task execution IAM role
+resource "aws_iam_role" "ecs_task_execution_role" {
+  name = "${var.client_name}-ecs-task-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
+      },
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 # Fargate task definition
@@ -102,6 +175,7 @@ resource "aws_ecs_task_definition" "payload" {
   network_mode             = "awsvpc"
   cpu                      = "512"
   memory                   = "1024"
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([
     for c in var.containers : merge(
@@ -143,25 +217,107 @@ resource "aws_ecs_service" "payload" {
     security_groups = [aws_security_group.payload_sg.id]
     assign_public_ip = true
   }
+
+  # Add this load_balancer block
+  load_balancer {
+    target_group_arn = aws_lb_target_group.payload_tg[0].arn
+    container_name   = "payload"  # This should match the container name in your task definition
+    container_port   = 3000
+  }
+
+  depends_on = [aws_lb_listener.payload_https]
+}
+
+# Target group for ECS tasks
+resource "aws_lb_target_group" "payload_tg" {
+  count       = var.use_payload ? 1 : 0
+  name        = "${var.client_name}-tg"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"  # Important for Fargate
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 2
+    interval            = 30
+    matcher             = "200"
+    path                = "/"  # Adjust if Payload has a different health check path
+    port                = "traffic-port"
+    protocol            = "HTTP"
+    timeout             = 5
+    unhealthy_threshold = 2
+  }
+
+  tags = {
+    Name = "${var.client_name}-tg"
+  }
+}
+
+# HTTP Listener (redirects to HTTPS)
+resource "aws_lb_listener" "payload_http" {
+  count             = var.use_payload ? 1 : 0
+  load_balancer_arn = aws_lb.payload_lb.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# HTTPS Listener
+resource "aws_lb_listener" "payload_https" {
+  count             = var.use_payload ? 1 : 0
+  load_balancer_arn = aws_lb.payload_lb.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
+  certificate_arn   = aws_acm_certificate.cert.arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.payload_tg[0].arn
+  }
 }
 
 # Load balancer (for external access to Payload)
 resource "aws_lb" "payload_lb" {
   name               = "${var.client_name}-lb"
   internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_sg.id]
   subnets            = var.subnet_ids
+  
+  enable_deletion_protection = false
+
+  tags = {
+    Name = "${var.client_name}-alb"
+  }
 }
 
 # ACM Certificate
 resource "aws_acm_certificate" "cert" {
+  provider                  = aws.us_east_1
   domain_name               = var.domain_name
   validation_method         = "DNS"
+
+  subject_alternative_names = [
+    "*.${var.domain_name}"       # Covers all subdomains including cms.yourdomain.com
+  ]
+
   lifecycle {
     create_before_destroy = true
   }
 }
 
 resource "aws_acm_certificate_validation" "cert" {
+  provider                  = aws.us_east_1
   count                     = var.domain_registered_in_aws ? 1 : 0
   certificate_arn           = aws_acm_certificate.cert.arn
   validation_record_fqdns   = [aws_route53_record.cert_validation[0].fqdn]
@@ -169,9 +325,35 @@ resource "aws_acm_certificate_validation" "cert" {
 
 # CloudFront Distribution
 resource "aws_cloudfront_distribution" "cdn" {
+  provider      = aws.us_east_1
+
+  # S3 origin for main site
   origin {
-    domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
+    domain_name = aws_s3_bucket_website_configuration.frontend.website_endpoint
     origin_id   = "s3-origin"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "http-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  # ALB origin for CMS (only if using Payload)
+  dynamic "origin" {
+    for_each = var.use_payload ? [1] : []
+    content {
+      domain_name = aws_lb.payload_lb.dns_name
+      origin_id   = "alb-origin"
+      
+      custom_origin_config {
+        http_port              = 80
+        https_port             = 443
+        origin_protocol_policy = "https-only"
+        origin_ssl_protocols   = ["TLSv1.2"]
+      }
+    }
   }
 
   restrictions {
@@ -185,6 +367,7 @@ resource "aws_cloudfront_distribution" "cdn" {
   comment             = "${var.client_name} CDN"
   default_root_object = "index.html"
 
+  # Default behavior - serve from S3
   default_cache_behavior {
     target_origin_id = "s3-origin"
     viewer_protocol_policy = "redirect-to-https"
@@ -195,6 +378,30 @@ resource "aws_cloudfront_distribution" "cdn" {
       cookies {
         forward = "none"
       }
+    }
+  }
+
+  # CMS behavior - route cms.* requests to ALB
+  dynamic "ordered_cache_behavior" {
+    for_each = var.use_payload ? [1] : []
+    content {
+      path_pattern     = "/cms*"
+      allowed_methods  = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+      cached_methods   = ["GET", "HEAD"]
+      target_origin_id = "alb-origin"
+
+      forwarded_values {
+        query_string = true
+        headers      = ["*"]
+        cookies {
+          forward = "all"
+        }
+      }
+
+      viewer_protocol_policy = "redirect-to-https"
+      min_ttl                = 0
+      default_ttl            = 0
+      max_ttl                = 0
     }
   }
 
@@ -211,12 +418,22 @@ resource "aws_cloudfront_distribution" "cdn" {
 }
 
 resource "aws_route53_record" "cert_validation" {
-  count   = var.domain_registered_in_aws ? 1 : 0
-  name    = tolist(aws_acm_certificate.cert.domain_validation_options)[0].resource_record_name
-  type    = tolist(aws_acm_certificate.cert.domain_validation_options)[0].resource_record_type
-  records = [tolist(aws_acm_certificate.cert.domain_validation_options)[0].resource_record_value]
-  zone_id = var.route53_zone_id
-  ttl     = 60
+  provider = aws.us_east_1
+  
+  for_each = var.domain_registered_in_aws ? {
+    for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  } : {}
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = var.route53_zone_id
 }
 
 # Route53 Alias Record
@@ -248,6 +465,7 @@ resource "aws_route53_record" "cms_subdomain" {
 }
 
 resource "aws_acm_certificate" "wildcard_cert" {
+  provider                  = aws.us_east_1
   domain_name               = "*.${var.domain_name}"
   validation_method         = "DNS"
   lifecycle {
@@ -260,6 +478,7 @@ resource "aws_acm_certificate" "wildcard_cert" {
 }
 
 resource "aws_route53_record" "wildcard_cert_validation" {
+  provider= aws.us_east_1
   count   = var.domain_registered_in_aws ? 1 : 0
   name    = tolist(aws_acm_certificate.wildcard_cert.domain_validation_options)[0].resource_record_name
   type    = tolist(aws_acm_certificate.wildcard_cert.domain_validation_options)[0].resource_record_type
@@ -269,6 +488,7 @@ resource "aws_route53_record" "wildcard_cert_validation" {
 }
 
 resource "aws_acm_certificate_validation" "wildcard" {
+  provider                 = aws.us_east_1
   count                    = var.domain_registered_in_aws ? 1 : 0
   certificate_arn          = aws_acm_certificate.wildcard_cert.arn
   validation_record_fqdns  = [aws_route53_record.wildcard_cert_validation[0].fqdn]
